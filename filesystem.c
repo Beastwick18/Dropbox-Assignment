@@ -1,8 +1,12 @@
+// Steven Culwell
+// 1001783662
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <stdint.h>
 #include "filesystem.h"
 
 #define MAX_FILENAME 32
@@ -10,8 +14,18 @@
 #define BLOCK_SIZE   8192
 
 typedef struct {
-  
+  uint16_t direct_data_blocks[1250];
 } inode;
+
+typedef struct {
+  uint16_t start_inode;
+  uint8_t attrib;
+} dir_entry;
+
+typedef enum {
+  R = 0b01,
+  H = 0b10
+} ATTRIB;
 
 static unsigned char filesystem[NUM_BLOCKS][BLOCK_SIZE];
 static char *disk_image_name;
@@ -32,8 +46,61 @@ int fs_setattrib() {
   
 }
 
-int fs_open() {
+int fs_open(char *filename) {
+  int status;
   
+  struct stat buf;
+  status =  stat( filename, &buf ); 
+
+  // If stat did not return -1 then we know the input file exists and we can use it.
+  if( status == -1 )
+  {
+    printf("Error: Unable to open file\n");
+    return -1;
+  }
+    // Open the input file read-only 
+  FILE *ifp = fopen ( filename, "r" ); 
+  printf("Reading %d bytes from %s\n", (int) buf . st_size, filename );
+
+  int copy_size = buf.st_size;
+
+  int offset = 0;               
+
+  int block_index = 0;
+
+  while( copy_size > 0 )
+  {
+    fseek( ifp, offset, SEEK_SET );
+
+    int bytes = fread( filesystem[block_index], BLOCK_SIZE, 1, ifp );
+
+    // If bytes == 0 and we haven't reached the end of the file then something is 
+    // wrong. If 0 is returned and we also have the EOF flag set then that is OK.
+    // It means we've reached the end of our input file.
+    if( bytes == 0 && !feof( ifp ) )
+    {
+      printf("An error occured reading from the input file.\n");
+      return -1;
+    }
+
+    // Clear the EOF file flag.
+    clearerr( ifp );
+
+    // Reduce copy_size by the BLOCK_SIZE bytes.
+    copy_size -= BLOCK_SIZE;
+    
+    // Increase the offset into our input file by BLOCK_SIZE.  This will allow
+    // the fseek at the top of the loop to position us to the correct spot.
+    offset += BLOCK_SIZE;
+
+    // Increment the index into the block array 
+    block_index++;
+  }
+
+  // We are done copying from the input file so close it out.
+  fclose( ifp );
+  
+  return 0;
 }
 
 int fs_close() {

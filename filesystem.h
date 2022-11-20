@@ -7,7 +7,7 @@ int fs_savefs();
 
 int fs_setattrib();
 
-int fs_open();
+int fs_open(char *filename);
 
 int fs_close();
 
@@ -20,5 +20,7 @@ int fs_get();
 int fs_del();
 
 int fs_undel();
+
+int fs_df();
 
 #endif
