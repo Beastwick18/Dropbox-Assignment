@@ -37,16 +37,17 @@ typedef struct {
   uint8_t attrib;
 } dir_entry;
 
-static dir_entry dir_entries[MAX_FILES];
-static inode inodes[MAX_FILES];
-static unsigned char filesystem[NUM_BLOCKS][BLOCK_SIZE];
+static dir_entry *dir_entries[MAX_FILES];
+static inode *inodes[MAX_FILES];
+// inodes[0] = (inode *) (&filesystem[0 + 5]) // from 0-125
+static uint8_t filesystem[NUM_BLOCKS][BLOCK_SIZE];
 static char *disk_image_name;
 
 static bool created = false;
 
 int find_dir_entry(char *filename) {
   for(int i = 0; i < MAX_FILES; i++) {
-    if(strncmp(dir_entries[i].filename, filename, MAX_FILENAME) == 0) {
+    if(strncmp(dir_entries[i]->filename, filename, MAX_FILENAME) == 0) {
       return i;
     }
   }
@@ -66,12 +67,12 @@ int fs_createfs(char *name) {
   }
   
   for(int i = 0; i < MAX_FILES; i++) {
-    dir_entries[i].attrib = 0;
-    memset(dir_entries[i].filename, 0, MAX_FILENAME);
-    dir_entries[i].inode = 0;
+    // dir_entries[i].attrib = 0;
+    // memset(dir_entries[i].filename, 0, MAX_FILENAME);
+    // dir_entries[i].inode = 0;
     
-    memset(inodes[i].direct_data_blocks, 0, 1250);
-    inodes[i].deleted = false;
+    // memset(inodes[i].direct_data_blocks, 0, 1250);
+    // inodes[i].deleted = false;
   }
   
   created = true;
