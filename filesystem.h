@@ -1,19 +1,26 @@
 #ifndef CSE3320_FILESYSTEM_H
 #define CSE3320_FILESYSTEM_H
 
+#include <stdbool.h>
+
+typedef enum {
+  R = 0b01,
+  H = 0b10,
+} ATTRIB;
+
 int fs_createfs(char *disk_image_name);
 
 int fs_savefs();
 
-int fs_setattrib();
+int fs_setattrib(char *filename, ATTRIB a, bool enabled);
 
-int fs_open(char *filename);
+int fs_open(char *image);
 
 int fs_close();
 
 int fs_list();
 
-int fs_put();
+int fs_put(char *filename);
 
 int fs_get();
 
