@@ -18,7 +18,7 @@ int fs_open(char *image);
 
 int fs_close();
 
-int fs_list();
+int fs_list(bool show_hidden);
 
 int fs_put(char *filename);
 

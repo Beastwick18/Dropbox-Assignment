@@ -58,9 +58,13 @@ int put_cmd(char **token, int token_count) {
     return 1;
   }
   
-  // Stuff
+  int result = fs_put(filename);
+  if(result == -1) {
+    printf("Error: Failed to put file\n");
+    return -1;
+  }
   
-  return 0;
+  return result;
 }
 
 // get <filename>: Retrieve the file from the filesystem image
@@ -130,12 +134,28 @@ int undel_cmd(char **token, int token_count) {
 
 // list [-h]: List the files in the file system image
 int list_cmd(char **token, int token_count) {
+  if(token_count > 3) {
+    printf("Error: Too many arguments\n");
+    return -1;
+  }
   
+  bool show_hidden = token_count == 3 && strncmp("-h", token[1], 3) == 0;
+  fs_list(show_hidden);
+  
+  return 0;
 }
 
 // df: Display the amount of disk space left in the file system
 int df_cmd(char **token, int token_count) {
+  if(token_count != 2) {
+    printf("Error: Too many arguments\n");
+    return -1;
+  }
   
+  int df = fs_df();
+  printf("%d bytes free\n", df);
+  
+  return 0;
 }
 
 // open <file image name>: Open a file system image
@@ -154,14 +174,24 @@ int open_cmd(char **token, int token_count) {
     printf("Error: File image name must not be empty\n");
   }
   
-  // Stuff
+  fs_open(file_image_name);
   
   return 0;
 }
 
 // close: Close the currently opened file system
 int close_cmd(char **token, int token_count) {
+  if(token_count != 2) {
+    printf("Error: Too many arguments.\n");
+    return -1;
+  }
   
+  if(fs_close() == -1) {
+    printf("Error: No file system currently opened\n");
+    return -1;
+  }
+  
+  return 0;
 }
 
 // createfs <disk image name>: Create a new file system image
@@ -180,19 +210,41 @@ int createfs_cmd(char **token, int token_count) {
     printf("Error: Disk image name must not be empty\n");
   }
   
-  // Stuff
+  if(fs_createfs(disk_image_name) == -1) {
+    printf("Failed to create file system\n");
+  }
   
   return 0;
 }
 
 // savefs: Save the current file system image
 int savefs_cmd(char **token, int token_count) {
-  
+  if(token_count != 2) {
+    printf("Error: Too many arguments\n");
+    return -1;
+  }
+  if(fs_savefs() == -1) {
+    printf("Error: Failed to save file system\n");
+  }
 }
 
 // attrib [+attribute] [ -attribute] <filename>: Set or remove the attribute for the file
 int attrib_cmd(char **token, int token_count) {
+  if(token_count != 4) {
+    printf("Error: Expected `attrib [+attribute] [-attribute] <file>`\n");
+    return -1;
+  }
+  if(strnlen(token[1], 3) != 2 || (token[1][0] != '+' && token[1][0] != '-') ||
+      (token[1][1] != 'r' && token[1][1] != 'h')) {
+    printf("Error: Expected `attrib [+attribute] [-attribute] <file>`\n");
+    return -1;
+  }
   
+  bool enabled = token[1][0] == '+';
+  ATTRIB a = token[1][1] == 'r' ? R : H;
+  fs_setattrib(token[2], a, enabled);
+  
+  return 0;
 }
 
 int main()
@@ -268,7 +320,7 @@ int main()
     } else if(strncmp("attrib", token[0], MAX_COMMAND_SIZE) == 0) {
       attrib_cmd(token, token_count);
     } else {
-      printf("Error: Unknown command: `%s`", token[0]);
+      printf("Error: Unknown command: `%s`\n", token[0]);
     }
 
     // int token_index  = 0;
@@ -280,5 +332,7 @@ int main()
     free( working_root );
 
   }
+  
+  fs_close();
   return 0;
 }
