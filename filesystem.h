@@ -22,7 +22,7 @@ int fs_list(bool show_hidden);
 
 int fs_put(char *filename);
 
-int fs_get();
+int fs_get(char *filename, char *newfilename);
 
 int fs_del();
 

@@ -75,8 +75,9 @@ int get_cmd(char **token, int token_count) {
     printf("Error: Not enough arguments. Expected `get <filename>`\n");
     return 1;
   }
-  if(token_count > 3) {
-    printf("Error: Too many arguments. Expected `get <filename>`\n");
+  if(token_count > 4) {
+    printf("Error: Too many arguments. Expected `get <filename>` or \
+`get <filename> <newfilename>`\n");
     return 1;
   }
   
@@ -85,7 +86,12 @@ int get_cmd(char **token, int token_count) {
     printf("Error: File name must not be empty\n");
   }
   
-  // Stuff
+  
+  char *newfilename = filename;
+  if(token_count == 4)
+    newfilename = token[2];
+  
+  fs_get(filename, newfilename);
   
   return 0;
 }

@@ -1,0 +1,3 @@
+#/bin/sh
+
+xxd -d -s $(echo $(($1*8192))) -c 32 -l 1024 test
