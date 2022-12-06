@@ -1,0 +1,35 @@
+# Dropbox-Assignment
+- This is my Dropbox Assignment for my Operating Systems class (CSE3320)
+- In this assignment, I implemented a filesystem that can be saved in a binary format to disk and held and modified in memory.
+- This filesystem uses an inode structure to store the files and their data and all files are in a single level directory.
+- The filesystem is split up into 4226 blocks of size 8192 bytes.
+- The maximum filesize is 10,240,000 bytes. The maximum number of files is 125. The maximum length of a filename is 32 characters.
+- Each file gets one inode and one directory entry.
+- Upon running the program, the user is prompted with a shell `mfs>` where they can enter commands to interact with the filesystem.
+- Valid commands are as follows:
+  - `quit`/`exit`: Exits the program and closes the filesystem
+  - `put <filename>`: Copys a local file into the filesystem
+  - `get <filename> [newfilename]`: Retreives a file from the filesystem. If `newfilename` is present, the outputted file will be renamed to newfilename.
+  - `del <filename>`: Marks a file as deleted on the filesystem. Deleted files may be overwritten.
+  - `undel <filename>`: Marks a deleted file as undeleted. Undeletion may cause corruption of filedata if the corresponding inode or data blocks have been overwritten.
+  - `list [-h]`: List files on the filesystem. If the `-h` flag is set, files marked as hidden will also be shown.
+  - `df`: List the amount of bytes of disk space that is available for use.
+  - `open <file image name>`: Opens a file system image on the local disk.
+  - `close`: Closes the currently opened filesystem.
+  - `createfs <disk image name>`: Creates an empty file system image on the users local disk.
+  - `savefs`: Saves the currently opened filesystem.
+  - `attrib [-attribute] [+attribute] <filename>`: Sets or unsets an attribute of a file on the filesystem.
+    - Valid attributes are:
+      - `h`: Hidden
+      - `r`: Read only
+    - `-/+` correspond to set/unset
+  - `cat <filename>`: Print the contents of a file on the filesystem into stdout.
+- Directory entries associated with files have the following attributes:
+  - `filename`: A string of characters that can be up to 32 characters.
+  - `inode`: The index of the inode associated with the file.
+  - `valid`: A boolean corresponding to whether the file may be overwritten. Deleted files are marked as not valid. In use files are marked as valid.
+- Inodes associated with a directory entry have the following attributes:
+  - `bytes`: The size of the file in bytes
+  - `attrib`: A bit field containing one bit for each attribute of the file.
+  - `time_added`: The time that the file was added.
+  - `blocks`: An array contianing the maximum amount of blocks addressable by one inode (1250 blocks).
