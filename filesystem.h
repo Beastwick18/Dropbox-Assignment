@@ -30,6 +30,4 @@ int fs_undel(char *filename);
 
 int fs_df();
 
-int fs_cat(char *filename);
-
 #endif

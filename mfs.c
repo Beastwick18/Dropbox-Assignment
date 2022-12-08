@@ -65,7 +65,7 @@ int put_cmd(char **token, int token_count) {
 // system image and place it in the file named <newfilename>
 int get_cmd(char **token, int token_count) {
   if(token_count != 3 && token_count != 4) {
-    printf("Expected `get <filename>` or `get <filename> <newfilename>`\n");
+    printf("geterror: Expected `get <filename>` or `get <filename> <newfilename>`\n");
     return -1;
   }
   
@@ -228,28 +228,6 @@ is either 'r' or 'h'\n");
   return fs_setattrib(token[2], a, enabled);
 }
 
-int cat_cmd(char **token, int token_count) {
-  if(token_count != 3) {
-    printf("cat error: Expected cat `filename`\n");
-    return -1;
-  }
-  
-  if(!token[1]) {
-    printf("cat error: File name must not be empty");
-    return -1;
-  }
-  return fs_cat(token[1]);
-}
-
-int test_cmd(char **token, int token_count) {
-  char buf[20] = { 0 };
-  for(int i = 1; i <= 125; i++) {
-    sprintf(buf, "files/%d", i);
-    fs_put(buf);
-  }
-  return 0;
-}
-
 int main() {
 
   char * cmd_str = (char*) malloc( MAX_COMMAND_SIZE );
@@ -268,7 +246,7 @@ int main() {
     while( !fgets (cmd_str, MAX_COMMAND_SIZE, stdin) );
 
     /* Parse input */
-    char *token[MAX_NUM_ARGUMENTS];
+    char *token[MAX_NUM_ARGUMENTS] = { NULL };
 
     int   token_count = 0;                                 
                                                            
@@ -288,6 +266,7 @@ int main() {
               (token_count<MAX_NUM_ARGUMENTS)) {
       token[token_count] = strndup( arg_ptr, MAX_COMMAND_SIZE );
       if( strlen( token[token_count] ) == 0 ) {
+        free(token[token_count]);
         token[token_count] = NULL;
       }
       token_count++;
@@ -323,17 +302,18 @@ int main() {
       savefs_cmd(token, token_count);
     } else if(strncmp("attrib", token[0], MAX_COMMAND_SIZE) == 0) {
       attrib_cmd(token, token_count);
-    } else if(strncmp("cat", token[0], MAX_COMMAND_SIZE) == 0) {
-      cat_cmd(token, token_count);
-    } else if(strncmp("test", token[0], MAX_COMMAND_SIZE) == 0) {
-      test_cmd(token, token_count);
     } else {
       printf("mfs error: Unknown command: `%s`\n", token[0]);
     }
 
+    for(int i = 0; i < token_count; i++) {
+      if(token[i])
+        free(token[i]);
+    }
     free( working_root );
   }
   
+  free(cmd_str);
   fs_close();
   return 0;
 }

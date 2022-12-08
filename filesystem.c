@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <ctype.h>
 #include "filesystem.h"
 
 #define BLOCK_SIZE      8192
@@ -25,7 +26,6 @@ typedef uint8_t inode_ptr;
 typedef uint16_t block_ptr;
 
 typedef struct {
-  char filename[MAX_FILENAME];        // Copy of filename from corresponding dir_entry
   int used_blocks;                    // Counts number of used blocks for the inode
   uint32_t bytes;                     // Total size of the file in bytes
   uint8_t attrib;                     // Bit field containing bit for each attribute
@@ -88,50 +88,83 @@ int find_dir_entry(char *filename, bool valid) {
   return -1;
 }
 
-// Check if all blocks in a given free inode are free
-bool all_blocks_free(inode_ptr n) {
-  for(int i = 0; i < inodes[n]->used_blocks; i++) {
-    // Return false if block i is not free
-    if(!free_block_map[inodes[n]->blocks[i]])
+// Return true if the filename contains only valid characters
+bool valid_filename(char *filename) {
+  int len = strnlen(filename, MAX_FILENAME);
+  for(int i = 0; i < len; i++) {
+    char c = tolower(filename[i]);
+    if(!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '.') {
       return false;
+    }
   }
-  // Return true now that we know all blocks must be free
   return true;
 }
 
 // Initialize the file system, including dir_entries array, inode
 // array, free_inode_map, free_block_map, and disk_image_name
 int fs_createfs(char *name) {
-  if(opened) {
-    printf("createfs error: Another file system is already open\n");
+  
+  FILE *ofp;
+  ofp = fopen(name, "w");
+
+  if(ofp == NULL) {
+    printf("createfs error: Could not open file \"%s\": ", disk_image_name);
+    fflush(stdout);
+    perror("");
     return -1;
   }
   
-  disk_image_name = strndup(name, MAX_FILENAME+1);
-  
+  // Create a new, empty filesystem to use temporarily to save to a file on the system
+  uint8_t **new_filesystem = calloc(NUM_BLOCKS, sizeof(uint8_t *));
+
   // Initialize all data in blocks to 0
-  for(int i = 0; i < NUM_BLOCKS; i++)
-    memset(filesystem[i], 0, BLOCK_SIZE);
-  
-  size_t size = sizeof(dir_entry);
-  for(int i = 0; i < MAX_FILES; i++) {
-    dir_entries[i] = (dir_entry *) &filesystem[0][size * i];
-    inodes[i] = (inode *) filesystem[i+5];
+  for(int i = 0; i < NUM_BLOCKS; i++) {
+    new_filesystem[i] = calloc(BLOCK_SIZE, sizeof(uint8_t));
+    memset(new_filesystem[i], 0, BLOCK_SIZE);
   }
   
   // Set all inodes and blocks to free (1)
-  memset(filesystem[2], 1, MAX_FILES);
-  memset(filesystem[3], 1, NUM_BLOCKS);
+  memset(new_filesystem[2], 1, MAX_FILES);
+  memset(new_filesystem[3], 1, NUM_BLOCKS);
   
   // Set blocks 0-130 to used (0)
-  memset(filesystem[3], 0, MAX_FILES+5);
+  memset(new_filesystem[3], 0, MAX_FILES+5);
   
-  free_inode_map = filesystem[2];
-  free_block_map = filesystem[3];
   
-  // printf("%ld\n", BLOCK_SIZE/sizeof(dir_entry));
+  // Initialize our offsets and pointers just we did above when reading from the file.
+  block_ptr block_index = 0;
+  int copy_size = BLOCK_SIZE * NUM_BLOCKS;
+  int offset = 0;
+
+  printf("Writing %d bytes to %s\n", copy_size, name);
+
+  // Using copy_size as a count to determine when we've copied enough bytes to the output file.
+  // Each time through the loop, we will copy BLOCK_SIZE number of bytes from  our stored data
+  // to the file fp, then we will increment the offset into the file we are writing to.
+  while(copy_size > 0) {
+    // Write BLOCK_SIZE number of bytes from empty array into our output file.
+    fwrite(new_filesystem[block_index], BLOCK_SIZE, 1, ofp);
+
+    // Reduce the amount of bytes remaining to copy, increase the offset into the file
+    // and increment the block_index to move us to the next data block.
+    copy_size -= BLOCK_SIZE;
+    offset    += BLOCK_SIZE;
+    block_index++;
+
+    // Since we've copied from the point pointed to by our current file pointer, increment
+    // offset number of bytes so we will be ready to copy to the next area of our output file.
+    fseek(ofp, offset, SEEK_SET);
+  }
+
+  // Close the output file, we're done. 
+  fclose(ofp);
+
+  // Free up the memory allocated for setting up the new filesystem image
+  for(int i = 0; i < NUM_BLOCKS; i++) {
+    free(new_filesystem[i]);
+  }
+  free(new_filesystem);
   
-  opened = true;
   return 0;
 }
 
@@ -203,6 +236,8 @@ int fs_setattrib(char *filename, attrib a, bool enabled) {
     return -1;
   }
   
+  // Set specific bit in attrib associated with either hidden or
+  // read-only to enabled/disabled
   int inode_idx = dir_entries[idx]->inode;
   if(enabled)
     inodes[inode_idx]->attrib |=  a & 0b11;
@@ -218,7 +253,7 @@ int fs_open(char *filename) {
     printf("open error: Another file system is already open\n");
     return -1;
   }
-  fs_createfs(filename);
+  
   
   if(strnlen(filename, MAX_FILENAME+1) > MAX_FILENAME) {
     printf("open error: File name too long\n");
@@ -253,6 +288,24 @@ int fs_open(char *filename) {
   FILE *ofp = fopen(filename, "r"); 
   printf("Reading %d bytes from %s\n", copy_size, filename);
 
+  disk_image_name = strndup(filename, MAX_FILENAME+1);
+  
+  // Setup dir_entries by making each dir entry point to a spot
+  // within the first block right after the previous dir entry.
+  // Also setup each inode to point to a block after the 5th block.
+  // Each inode gets their own block
+  size_t size = sizeof(dir_entry);
+  for(int i = 0; i < MAX_FILES; i++) {
+    dir_entries[i] = (dir_entry *) &filesystem[0][size * i];
+    inodes[i] = (inode *) filesystem[i+5];
+  }
+  
+  // Setup free_inode_map and free_block_map by making them point
+  // to the correct blocks within the filesystem (blocks 2 and 3)
+  free_inode_map = filesystem[2];
+  free_block_map = filesystem[3];
+  
+  opened = true;
 
   // We want to copy and write in chunks of BLOCK_SIZE. So to do this 
   // we are going to use fseek to move along our file stream in chunks of BLOCK_SIZE.
@@ -332,12 +385,13 @@ int fs_list(bool show_hidden) {
   
   for(int i = 0; i < MAX_FILES; i++) {
     int inode_idx = dir_entries[i]->inode;
+    
+    // Check that the current file is not deleted and it is not hidden, unless we are
+    // meant to show hidden files
     if(dir_entries[i]->valid && (!(inodes[inode_idx]->attrib & H) || show_hidden)) {
-      char h = inodes[inode_idx]->attrib & H ? 'H' : '-';
-      char r = inodes[inode_idx]->attrib & R ? 'R' : '-';
       char *time_str = ctime(&inodes[inode_idx]->time_added);
       time_str[strlen(time_str)-1] = 0; // Remove newline character from string
-      printf("%c%c %8d %s %s\n", h, r, inodes[inode_idx]->bytes, time_str, dir_entries[i]->filename);
+      printf("%8d %s %s\n", inodes[inode_idx]->bytes, time_str, dir_entries[i]->filename);
     }
   }
   
@@ -351,18 +405,19 @@ int fs_put(char *filename) {
     return -1;
   }
   
-  char *base = basename(filename);
-  if(!base || base[0] == 0) {
-    printf("put error: Could not extract valid basename from given filename\n");
-    return -1;
-  }
-  
-  if(strnlen(base, MAX_FILENAME+1) > MAX_FILENAME) {
+  // Make sure filename is not too long
+  if(strnlen(filename, MAX_FILENAME+1) > MAX_FILENAME) {
     printf("put error: File name too long\n");
     return -1;
   }
   
-  int valid_idx = find_dir_entry(base, true);
+  if(!valid_filename(filename)) {
+    printf("put error: Filename contains invalid characters\n");
+    return -1;
+  }
+  
+  // Check if another file with the same name exists (only checks undeleted files)
+  int valid_idx = find_dir_entry(filename, true);
   if(valid_idx != -1) {
     printf("put error: Another file with the same name already exists\n");
     return -1;
@@ -401,32 +456,14 @@ int fs_put(char *filename) {
     return -1;
   }
   
-  int dir_entry_idx, inode_idx;
-  
-  // If a deleted file with the same name exists, we will overwrite it
-  // so that there is no naming conflict when undeleting by having two
-  // files with same name. Otherwise, we will just use the next available
-  // dir entry and inode.
-  int invalid_idx = find_dir_entry(base, false);
-  if(invalid_idx != -1) {
-    dir_entry_idx = invalid_idx;
-    inode_idx = dir_entries[dir_entry_idx]->inode;
-    
-    // If the inode corresponding to the dir entry we are overwritting
-    // is not free (another dir entry is using it), then find another
-    // one that is free.
-    if(!free_inode_map[inode_idx]) {
-      inode_idx = find_next_free_inode();
-    }
-  } else {
-    dir_entry_idx = find_next_free_dir_entry();
-    inode_idx = find_next_free_inode();
-  }
-  
+  // Get the index of the next free dir entry and inode so we can use them
+  int dir_entry_idx = find_next_free_dir_entry();
   if(dir_entry_idx == -1) {
     printf("put error: Maximum amount of files has been reached (%d)\n", MAX_FILES);
     return -1;
   }
+  
+  int inode_idx = find_next_free_inode();
   if(inode_idx == -1) {
     printf("put error: Maximum amount of inodes has been reached (%d)\n", MAX_FILES);
     return -1;
@@ -436,11 +473,12 @@ int fs_put(char *filename) {
   memset(dir_entries[dir_entry_idx], 0, sizeof(dir_entry));
   memset(inodes[inode_idx], 0, sizeof(inode));
   
-  strncpy(dir_entries[dir_entry_idx]->filename, base, MAX_FILENAME);
+  // Set filename, inode index, and mark file as valid
+  strncpy(dir_entries[dir_entry_idx]->filename, filename, MAX_FILENAME);
   dir_entries[dir_entry_idx]->inode = inode_idx;
   dir_entries[dir_entry_idx]->valid = true;
   
-  strncpy(inodes[inode_idx]->filename, base, MAX_FILENAME);
+  // Set file size in bytes, time added, and set attributes to none
   inodes[inode_idx]->bytes = copy_size;
   inodes[inode_idx]->time_added = time(NULL);
   inodes[inode_idx]->attrib = 0;
@@ -520,6 +558,7 @@ int fs_get(char *filename, char *newfilename) {
     return -1;
   }
   
+  // Search for file with filename that is valid (not deleted)
   int dir_idx = find_dir_entry(filename, true);
   if(dir_idx == -1 || !dir_entries[dir_idx]->valid) {
     printf("get error: Unable to find file \"%s\"\n", filename);
@@ -594,6 +633,7 @@ int fs_del(char *filename) {
     return -1;
   }
   
+  // Search for file with filename that is valid (not deleted)
   int dir_idx = find_dir_entry(filename, true);
   if(dir_idx == -1) {
     printf("del error: Unable to find file \"%s\"\n", filename);
@@ -601,8 +641,8 @@ int fs_del(char *filename) {
   }
   
   int inode_idx = dir_entries[dir_idx]->inode;
-  if(inode_idx >= MAX_FILES) {
-    printf("del error: File has invalid inode index\n");
+  if(inodes[inode_idx]->attrib & R) {
+    printf("del error: Cannot delete read-only file\n");
     return -1;
   }
   dir_entries[dir_idx]->valid = false;
@@ -622,6 +662,7 @@ int fs_undel(char *filename) {
     return -1;
   }
   
+  // Search for file with filename that is marked invalid (deleted)
   int dir_idx = find_dir_entry(filename, false);
   if(dir_idx == -1) {
     printf("undel error: Unable to find file \"%s\"\n", filename);
@@ -629,22 +670,9 @@ int fs_undel(char *filename) {
   }
   
   int inode_idx = dir_entries[dir_idx]->inode;
-  if(inode_idx >= MAX_FILES) {
-    printf("undel error: File has invalid inode index\n");
-    return -1;
-  }
+  
   // Check that inodes filename matches dir entries filename so that we know they
   // should correspond to each other
-  if(strncmp(inodes[inode_idx]->filename, dir_entries[dir_idx]->filename, MAX_FILENAME) != 0) {
-    printf("del error: The entries inode has been claimed by another file.\n");
-    return -1;
-  }
-  if(!all_blocks_free(inode_idx)) {
-    printf("del error: One or more of the data blocks corresponding to the file have \
-been overwritten by another file.\n");
-    return -1;
-  }
-  
   dir_entries[dir_idx]->valid = true;
   free_inode_map[inode_idx] = 0;
   // Mark all blocks corresponding to inode as no longer free
@@ -656,29 +684,11 @@ been overwritten by another file.\n");
 }
 
 int fs_df() {
+  // Count number of free blocks, then multiply by size of 1 block
+  // to get the amount of free space
   int count = 0;
   for(int i = 0; i < NUM_BLOCKS; i++)
     if(free_block_map[i])
       count++;
   return count * BLOCK_SIZE;
-}
-
-int fs_cat(char *filename) {
-  int idx = find_dir_entry(filename, true);
-  if(idx == -1) {
-    printf("cat error: Could not find file \"%s\"\n", filename);
-    return -1;
-  }
-  
-  int inode_idx = dir_entries[idx]->inode;
-  int remaining = inodes[inode_idx]->bytes;
-  for(int i = 0; i < inodes[inode_idx]->used_blocks; i++) {
-    int s = BLOCK_SIZE;
-    if(remaining < BLOCK_SIZE)
-      s = remaining;
-    
-    printf("%.*s", s, filesystem[inodes[inode_idx]->blocks[i]]);
-    remaining -= BLOCK_SIZE;
-  }
-  return 0;
 }
